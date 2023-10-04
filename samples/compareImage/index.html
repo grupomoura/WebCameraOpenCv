@@ -1,0 +1,120 @@
+<!DOCTYPE html>
+<html>
+
+<head>
+  <meta charset="utf-8">
+  <meta http-equiv="X-UA-Compatible" content="IE=edge">
+  <title>Check Similarity</title>
+  <script src="https://code.jquery.com/jquery-3.3.1.min.js"
+    integrity="sha256-FgpCb/KJQqLNfOu91ta32o/NMZxltwRo8QtmkMRdAu8=" crossorigin="anonymous"></script>
+  <script async src="/opencv.js" onload="onOpenCvReady();" onerror="console.error('Failed to load opencv.js');"></script>
+  <link rel="stylesheet" href="assets/css/index.css">
+</head>
+
+<body>
+  <h2>Compare two images</h2>
+  <div>
+    <div class="inputoutput">
+      <img id="imageSrc" alt="No Image" style="width: 500px; height: 500px;" />
+      <img id="imageSrc2" alt="No Image" style="width: 500px; height: 500px;" />
+      <div class="caption">imageSrc <input type="file" id="fileInput" name="file" /></div>
+      <div class="caption">imageSrc2 <input type="file" id="fileInput2" name="file" /></div>
+      <label for="sensitivitySlider">Sensitivity:</label>
+      <input type="range" id="sensitivitySlider" min="1" max="50" step="1" value="30" />
+      <button id="compareBtn">Compare</button>
+      <canvas id="canvasDifference" width="512" height="512"></canvas>
+    </div>
+  </div>
+  <script type="text/javascript">
+    let imgElement = document.getElementById('imageSrc');
+    let imgElement2 = document.getElementById('imageSrc2');
+    let inputElement = document.getElementById('fileInput');
+    let inputElement2 = document.getElementById('fileInput2');
+    let compareBtn = document.getElementById('compareBtn');
+    let sensitivitySlider = document.getElementById('sensitivitySlider');
+
+    var mat, mat2;
+    inputElement.addEventListener('change', (e) => {
+      imgElement.src = URL.createObjectURL(e.target.files[0]);
+    }, false);
+
+    imgElement.onload = function () {
+      mat = cv.imread(imgElement);
+      cv.cvtColor(mat, mat, cv.COLOR_RGBA2GRAY, 0);
+    };
+
+    inputElement2.addEventListener('change', (e) => {
+      imgElement2.src = URL.createObjectURL(e.target.files[0]);
+    }, false);
+
+    imgElement2.onload = function () {
+      mat2 = cv.imread(imgElement2);
+      cv.cvtColor(mat2, mat2, cv.COLOR_RGBA2GRAY, 0);
+    };
+
+    compareBtn.addEventListener('click', () => {
+      // Compute absolute difference
+      let diff = new cv.Mat();
+      cv.absdiff(mat, mat2, diff);
+
+      // Get sensitivity value from the slider
+      let sensitivity = Number(sensitivitySlider.value);
+
+      // Threshold the difference based on sensitivity
+      cv.threshold(diff, diff, sensitivity, 255, cv.THRESH_BINARY);
+
+      // Find contours in the difference
+      let contours = new cv.MatVector();
+      let hierarchy = new cv.Mat();
+      cv.findContours(diff, contours, hierarchy, cv.RETR_EXTERNAL, cv.CHAIN_APPROX_SIMPLE);
+
+      // Defina variáveis para ajuste de tamanho e cor dos quadros
+      const greenColor = new cv.Scalar(0, 255, 0);  // Verde
+      const yellowColor = new cv.Scalar(255, 255, 0);  // Amarelo
+      const redColor = new cv.Scalar(255, 0, 0);  // Vermelho
+
+      // Criar uma matriz colorida para desenhar os retângulos
+      let diffImageColor = new cv.Mat();
+
+      // Converter a imagem original para RGB
+      cv.cvtColor(mat2, diffImageColor, cv.COLOR_RGBA2RGB);
+
+      // Draw rectangles around differences on the second image
+      for (let i = 0; i < contours.size(); ++i) {
+        let rect = cv.boundingRect(contours.get(i));
+
+        let color;
+
+        // Determine a cor com base na largura do retângulo
+        if (rect.width < 20) {
+          color = greenColor;
+        } else if (rect.width <= 40) {
+          color = yellowColor;
+        } else {
+          color = redColor;
+        }
+
+        // Desenhe o retângulo com a cor apropriada na matriz colorida
+        let point1 = new cv.Point(rect.x, rect.y);
+        let point2 = new cv.Point(rect.x + rect.width, rect.y + rect.height);
+        cv.rectangle(diffImageColor, point1, point2, color, 2);
+      }
+
+      // Converter a matriz colorida de volta para RGBA
+      cv.cvtColor(diffImageColor, diffImageColor, cv.COLOR_RGB2RGBA);
+
+      // Exibir a imagem com as diferenças
+      cv.imshow('canvasDifference', diffImageColor);
+
+      mat.delete(); mat2.delete(); diff.delete(); contours.delete(); hierarchy.delete();
+      diffImageColor.delete();
+    }, false);
+
+    // Callback chamado quando opencv.js foi carregado
+    function onOpenCvReady() {
+      compareBtn.disabled = false;
+    }
+  </script>
+</body>
+
+</html>

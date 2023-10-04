@@ -1,0 +1,188 @@
+<!DOCTYPE html>
+<html>
+
+<head>
+  <meta charset="utf-8">
+  <meta http-equiv="X-UA-Compatible" content="IE=edge">
+  <title>Check Similarity</title>
+  <script src="https://code.jquery.com/jquery-3.3.1.min.js"
+    integrity="sha256-FgpCb/KJQqLNfOu91ta32o/NMZxltwRo8QtmkMRdAu8=" crossorigin="anonymous"></script>
+  <script async src="/opencv.js" onload="onOpenCvReady();" onerror="console.error('Failed to load opencv.js');"></script>
+  <link rel="stylesheet" href="assets/css/index.css">
+</head>
+
+<body>
+  <h2>Compare two images</h2>
+  <div>
+    <div class="inputoutput">
+      <div>
+        <button id="captureBtn">Fotografar equipamento</button>
+        <button id="startMonitoringBtn">Iniciar monitoramento</button>
+      </div>
+      <img id="imageSrc" alt="No Image" style="width: 500px; height: 500px;" />
+      <img id="imageSrc2" alt="No Image" style="width: 500px; height: 500px; display: none;" />
+      <canvas id="canvasDifference" width="512" height="512"></canvas>
+      <label for="sensitivitySlider">Sensitivity:</label>
+      <input type="range" id="sensitivitySlider" min="1" max="50" step="1" value="30" />
+      <button id="compareBtn" disabled>Compare</button>
+    </div>
+  </div>
+  <script type="text/javascript">
+    let imgElement = document.getElementById('imageSrc');
+    let imgElement2 = document.getElementById('imageSrc2');
+    let captureBtn = document.getElementById('captureBtn');
+    let startMonitoringBtn = document.getElementById('startMonitoringBtn');
+    let compareBtn = document.getElementById('compareBtn');
+    let sensitivitySlider = document.getElementById('sensitivitySlider');
+
+    var mat, mat2;
+    let isMonitoring = false;
+
+    captureBtn.addEventListener('click', () => {
+      captureImage();
+    });
+
+    startMonitoringBtn.addEventListener('click', () => {
+      startMonitoring();
+    });
+
+    compareBtn.addEventListener('click', () => {
+      if (isMonitoring) {
+        // If monitoring, capture the current frame
+        captureImage();
+      } else {
+        // If not monitoring, compare the captured images
+        compareImages();
+      }
+    });
+
+    function captureImage() {
+      let video = document.createElement('video');
+      navigator.mediaDevices.getUserMedia({ video: true })
+        .then((stream) => {
+          video.srcObject = stream;
+          video.play();
+
+          setTimeout(() => {
+            // Capture a frame from the video
+            let captureCanvas = document.createElement('canvas');
+            let captureContext = captureCanvas.getContext('2d');
+            captureCanvas.width = video.videoWidth;
+            captureCanvas.height = video.videoHeight;
+            captureContext.drawImage(video, 0, 0, video.videoWidth, video.videoHeight);
+
+            // Set the captured image source
+            imgElement.src = captureCanvas.toDataURL('image/png');
+
+            // Convert the captured image to grayscale
+            mat = cv.imread(imgElement);
+            cv.cvtColor(mat, mat, cv.COLOR_RGBA2GRAY, 0);
+
+            // Clean up
+            video.srcObject.getVideoTracks()[0].stop();
+          }, 500);
+        })
+        .catch((error) => {
+          console.error('Error accessing camera:', error);
+        });
+    }
+
+    function startMonitoring() {
+      let video = document.createElement('video');
+      navigator.mediaDevices.getUserMedia({ video: true })
+        .then((stream) => {
+          video.srcObject = stream;
+          video.play();
+
+          isMonitoring = true;
+          imgElement2.style.display = 'block';
+
+          // Periodically capture frames for monitoring
+          setInterval(() => {
+            // Capture a frame from the video
+            let captureCanvas = document.createElement('canvas');
+            let captureContext = captureCanvas.getContext('2d');
+            captureCanvas.width = video.videoWidth;
+            captureCanvas.height = video.videoHeight;
+            captureContext.drawImage(video, 0, 0, video.videoWidth, video.videoHeight);
+
+            // Set the captured image source
+            imgElement2.src = captureCanvas.toDataURL('image/png');
+
+            // Convert the captured image to grayscale
+            mat2 = cv.imread(imgElement2);
+            cv.cvtColor(mat2, mat2, cv.COLOR_RGBA2GRAY, 0);
+
+            // Compare the captured frames
+            compareImages();
+          }, 1000);
+        })
+        .catch((error) => {
+          console.error('Error accessing camera:', error);
+        });
+    }
+
+    function compareImages() {
+      // Compute absolute difference
+      let diff = new cv.Mat();
+      cv.absdiff(mat, mat2, diff);
+
+      // Get sensitivity value from the slider
+      let sensitivity = Number(sensitivitySlider.value);
+
+      // Threshold the difference based on sensitivity
+      cv.threshold(diff, diff, sensitivity, 255, cv.THRESH_BINARY);
+
+      // Find contours in the difference
+      let contours = new cv.MatVector();
+      let hierarchy = new cv.Mat();
+      cv.findContours(diff, contours, hierarchy, cv.RETR_EXTERNAL, cv.CHAIN_APPROX_SIMPLE);
+
+      // Define variables for frame adjustment and color
+      const greenColor = new cv.Scalar(0, 255, 0);  // Green
+      const yellowColor = new cv.Scalar(255, 255, 0);  // Yellow
+      const redColor = new cv.Scalar(255, 0, 0);  // Red
+
+      // Create a color matrix to draw rectangles
+      let diffImageColor = new cv.Mat();
+      cv.cvtColor(mat2, diffImageColor, cv.COLOR_RGBA2RGB);
+
+      // Draw rectangles around differences on the second image
+      for (let i = 0; i < contours.size(); ++i) {
+        let rect = cv.boundingRect(contours.get(i));
+
+        let color;
+
+        // Determine the color based on the width of the rectangle
+        if (rect.width < 20) {
+          color = greenColor;
+        } else if (rect.width <= 40) {
+          color = yellowColor;
+        } else {
+          color = redColor;
+        }
+
+        // Draw the rectangle with the appropriate color on the color matrix
+        let point1 = new cv.Point(rect.x, rect.y);
+        let point2 = new cv.Point(rect.x + rect.width, rect.y + rect.height);
+        cv.rectangle(diffImageColor, point1, point2, color, 2);
+      }
+
+      // Convert the color matrix back to RGBA
+      cv.cvtColor(diffImageColor, diffImageColor, cv.COLOR_RGB2RGBA);
+
+      // Display the image with differences
+      cv.imshow('canvasDifference', diffImageColor);
+
+      mat.delete(); mat2.delete(); diff.delete(); contours.delete(); hierarchy.delete();
+      diffImageColor.delete();
+    }
+
+    // Callback called when opencv.js is loaded
+    function onOpenCvReady() {
+      compareBtn.disabled = false;
+    }
+  </script>
+</body>
+
+</html>
